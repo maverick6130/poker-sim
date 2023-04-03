@@ -2,9 +2,30 @@
 #include <vector>
 #include <bitset>
 #include <sstream>
+#include <tuple>
 
 class Rank
 {
+private:
+    enum class Type {
+        HIGH_CARD,
+        PAIR,
+        TWO_PAIR,
+        TRIPS,
+        STRAIGHT,
+        FLUSH,
+        BOAT,
+        QUADS,
+        STRAIGHT_FLUSH
+    };
+    static inline const char* cards[15] = { 
+        "INVALID", "Ace", "Deuce", "Three", "Four", "Five", "Six", "Seven",
+        "Eight", "Nine", "Ten", "Jack", "Queen", "King", "Ace"
+    };
+
+    Type mType;
+    int mHigh;
+
 public:
 
     Rank( const std::vector<Card>& cards )
@@ -19,80 +40,29 @@ public:
             values[val]++;
         }
 
-        int straightFlush = CheckStraightFlush(suits);
-        if ( straightFlush )
+        std::tie(mType, mHigh) = CheckValueHand(values);
+
+        int potentialHigh = 0;
+        if ( (potentialHigh = CheckStraightFlush(suits)) )
         {
             mType =  Type::STRAIGHT_FLUSH;
-            mHigh = straightFlush;
+            mHigh = potentialHigh;
         }
-        else
+
+        if ( static_cast<int>(mType) <= static_cast<int>(Type::TRIPS) )
         {
-            int quads = CheckQuads(values);
-            if (quads)
+            if ( (potentialHigh = CheckFlush(suits)) )
             {
-                mType = Type::QUADS;
-                mHigh = quads;
+                mType = Type::FLUSH;
+                mHigh = potentialHigh;
             }
-            else
+            if ( ! potentialHigh && ( potentialHigh = CheckStraight(suits) ) )
             {
-                int boat = CheckBoat(values);
-                if (boat)
-                {
-                    mType = Type::BOAT;
-                    mHigh = boat;
-                }
-                else
-                {
-                    int flush = CheckFlush(suits);
-                    if (flush)
-                    {
-                        mType = Type::FLUSH;
-                        mHigh = flush;
-                    }
-                    else
-                    {
-                        int straight = CheckStraight(suits);
-                        if (straight)
-                        {
-                            mType = Type::STRAIGHT;
-                            mHigh = straight;
-                        }
-                        else
-                        {
-                            int trips = CheckTrips(values);
-                            if (trips)
-                            {
-                                mType = Type::TRIPS;
-                                mHigh = trips;
-                            }
-                            else
-                            {
-                                int two_pair = CheckTwoPair(values);
-                                if (two_pair)
-                                {
-                                    mType = Type::TWO_PAIR;
-                                    mHigh = two_pair;
-                                }
-                                else
-                                {
-                                    int pair = CheckPair(values);
-                                    if (pair)
-                                    {
-                                        mType = Type::PAIR;
-                                        mHigh = pair;
-                                    }
-                                    else
-                                    {
-                                        mType = Type::HIGH_CARD;
-                                        mHigh = CheckHighCard(values);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
+                mType = Type::STRAIGHT;
+                mHigh = potentialHigh;
             }
         }
+
     }
 
     int CheckStraightFlush(int *suits)
@@ -103,64 +73,6 @@ public:
             if ( res )
                 return res;
         }
-    }
-
-    int CheckQuads(int* values)
-    {
-        int quad = 0;
-        for (int i = 14; i > 1; --i)
-        {
-            if (values[i] >= 4)
-            {
-                quad = i;
-                break;
-            }
-        }
-
-        int high = 0;
-        if (quad)
-        {
-            for (int i  = 14; i > 1; --i)
-            {
-                if ( values[i] > 0 && quad != i )
-                {
-                    high = i;
-                    break;
-                }
-            }
-        }
-
-        return (quad << 4) + high;
-    }
-
-    int CheckBoat(int* values)
-    {
-        int boat = 0;
-        for (int i = 14; i > 1; --i)
-        {
-            if (values[i] >= 3)
-            {
-                boat = i;
-                break;
-            }
-        }
-
-        int full = 0;
-        if (boat)
-        {
-            for (int i  = 14; i > 1; --i)
-            {
-                if ( values[i] >= 2 && boat != i )
-                {
-                    full = i;
-                    break;
-                }
-            }
-        }
-
-        if (boat && full)
-            return (boat << 4) + full;
-
         return 0;
     }
 
@@ -190,105 +102,150 @@ public:
         return CheckStraightBits( suits[0] | suits[1] | suits[2] | suits[3] );
     }
 
-    int CheckTrips(int* values)
+    int CheckStraightBits(int hand)
     {
-        int trips = 0;
-        for (int i = 14; i > 1; --i)
+        constexpr int fiveRow = 31;
+        for(int shift = 10; shift > 0; shift --)
         {
-            if (values[i] >= 3)
-            {
-                trips = i;
-                break;
-            }
+            if ( ((hand >> shift) & fiveRow) == fiveRow )
+                return shift;
         }
-
-        int high1 = 0, high2 = 0;
-        if (trips)
-        {
-            for (int i  = 14; i > 1; --i)
-            {
-                if ( values[i] > 0 && trips != i )
-                {
-                    if (high1 == 0)
-                        high1 = i;
-                    else
-                    {
-                        high2 = i;
-                        break;
-                    }
-                }
-            }
-        }
-
-        return (trips << 8) | (high1 << 4) | high2;
+        return 0;
     }
 
-    int CheckTwoPair(int* values)
+    std::pair<Rank::Type, int> CheckValueHand(int* values)
     {
-        int pair1, pair2 = 0;
+        int maxFreqElement = 15;
+        int maxFreq = -1;
         for (int i = 14; i > 1; --i)
         {
-            if (values[i] >= 2)
+            if (values[i] > maxFreq)
             {
-                if (pair1 == 0)
-                    pair1 = i;
-                else
-                {
-                    pair2 = i;
-                    break;
-                }
+                maxFreq = values[i];
+                maxFreqElement = i;
             }
         }
 
         int high = 0;
-        if (pair1 & pair2)
+        Type type;
+        switch (maxFreq)
         {
-            for (int i  = 14; i > 1; --i)
+        case 4:
+            high = CheckQuads(values, maxFreqElement);
+            type = Type::QUADS;
+            break;
+        
+        case 3:
+            std::tie(type, high) = CheckBoatTrips(values, maxFreqElement);
+            break;
+
+        case 2:
+            std::tie(type, high) = CheckPairTwoPair(values, maxFreqElement);
+            break;
+
+        case 1:
+            high = CheckHighCard(values);
+            type = Type::HIGH_CARD;
+            break;
+
+        default:
+            break;
+        }
+
+        return {type, high};
+    }
+
+    int CheckQuads(int* values, int quad)
+    {
+        int high = 0;
+        for (int i  = 14; i > 1; --i)
+        {
+            if ( values[i] > 0 && quad != i )
             {
-                if ( values[i] > 0 && pair1 != i & pair2 != i )
-                {
-                    high = i;
-                    break;
-                }
+                high = i;
+                break;
             }
         }
 
-        return (pair1 << 8) | (pair2 << 4) | high;
+        return (quad << 4) | high;
     }
 
-    int CheckPair(int * values)
+    std::pair<Rank::Type, int> CheckBoatTrips(int* values, int trips)
     {
-        int pair = 0;
+        values[trips] = 0;
+
+        int maxSecondFreqElement = 15;
+        int maxSecondFreq = -1;
         for (int i = 14; i > 1; --i)
         {
-            if (values[i] >= 2)
+            if (values[i] > maxSecondFreq)
             {
-                pair = i;
+                maxSecondFreq = values[i];
+                maxSecondFreqElement = i;
             }
         }
 
-        int high[3] = {0};
-
-        int x = 0;
-        if (pair)
+        int high;
+        Type type;
+        if (maxSecondFreq >= 2)
         {
-            for (int i  = 14; i > 1; --i)
-            {
-                if ( values[i] > 0 && pair != i )
-                {
-                    high[x++] = i;
-                    if (x == 3)
-                        break;
-                }
-            }
+            high = (trips << 4) | maxSecondFreqElement;
+            type = Type::BOAT;
+        }
+        else
+        {
+            high = (trips << 8) | GetHighCards(values, 2);
+            type = Type::TRIPS;
         }
 
-        return (pair << 12) | (high[0] << 8) | (high[1] << 4) | high[2];   
+        values[trips] = 3;
+
+        return { type, high };
     }
 
-    int CheckHighCard(int * values)
+    std::pair<Rank::Type, int> CheckPairTwoPair(int* values, int pair)
     {
-        int high[5] = {0};
+        values[pair] = 0;
+
+        int maxSecondFreqElement = 15;
+        int maxSecondFreq = -1;
+        for (int i = 14; i > 1; --i)
+        {
+            if (values[i] > maxSecondFreq)
+            {
+                maxSecondFreq = values[i];
+                maxSecondFreqElement = i;
+            }
+        }
+
+        int high;
+        Type type;
+        if (maxSecondFreq == 2)
+        {
+            values[maxSecondFreqElement] = 0;
+            high = (pair << 8) | (maxSecondFreqElement << 4) | GetHighCards(values, 1) ;
+            values[maxSecondFreqElement] = maxSecondFreq;
+            type = Type::TWO_PAIR;
+        }
+        else
+        {
+            high = (pair << 12) | GetHighCards(values, 3);
+            type = Type::PAIR;
+        }
+
+        values[pair] = 2;
+
+        return { type, high };
+    }
+
+    int CheckHighCard(int *values)
+    {
+        return GetHighCards(values, 5);
+    }
+
+    int GetHighCards(int * values, int count)
+    {
+        int high[13] = {0};
 
         int x = 0;
         for (int i  = 14; i > 1; --i)
@@ -296,7 +253,7 @@ public:
             if ( values[i] > 0 )
             {
                 high[x++] = i;
-                if (x == 5)
+                if (x == count)
                     break;
             }
         }
@@ -309,56 +266,64 @@ public:
         }
 
         return ret;
-
-    }
-
-    int CheckStraightBits(int hand)
-    {
-        int fiveRow = (( 1 << 6 ) - 1 );
-        for(int shift = 10; shift > 0; shift --)
-        {
-            std::bitset<32> straight ( hand & (fiveRow << shift) );
-            if (straight.count() == 5)
-            {
-                return static_cast<int> (straight.to_ulong());
-            }
-        }
-        return 0;
     }
     
     std::string Verbose()
     {
         std::stringstream s;
+        s << static_cast<int>(mType) << " " << mHigh << " ";
         switch (mType)
         {
         case Type::HIGH_CARD:
-            s << "High Card ";
+            s << "High Cards ";
             for (int shift = 16; shift >= 0; shift -= 4)
-                s << cards[(mHigh >> shift) & 15];
+                s << cards[(mHigh >> shift) & 15] << " ";
+            s << "\n";
             break;
+        
+        case Type::PAIR:
+            s << "Pair of " << cards[(mHigh >> 12)] << "s with high cards ";
+            for (int shift = 8; shift >= 0; shift -= 4)
+                s << cards[(mHigh >> shift) & 15] << " ";
+            s << "\n";
+            break;
+
+        case Type::TWO_PAIR:
+            s << "Two Pair " << cards[(mHigh >> 8)] 
+              << "s and " << cards[(mHigh >> 4) & 15] << "s with ";
+            s << cards[mHigh & 15] << " high\n";
+            break;
+
+        case Type::TRIPS:
+            s << "A set of " << cards[(mHigh >> 8)] << "s with "
+              << cards[(mHigh >> 4) & 15] << " " << cards[mHigh & 15] << " high\n";
+            break;
+
+        case Type::STRAIGHT:
+            s << "Straight from " << cards[mHigh] << " to " << cards[mHigh + 4] << "\n";
+            break;
+        
+        case Type::FLUSH:
+            s << "Flush with high cards " << std::bitset<16>(mHigh) << "\n";
+            break;
+        
+        case Type::BOAT:
+            s << cards[(mHigh >> 4)] << "s full of " << cards[mHigh & 15] << "s\n";
+            break;
+
+        case Type::QUADS:
+            s << "Quad " << cards[(mHigh>>4)] << "s with kicker " << cards[mHigh & 15] << "\n";
+            break;
+        
+        case Type::STRAIGHT_FLUSH:
+            s << "Straight flush from " << cards[mHigh] << " to " << cards[mHigh + 4] << "\n";
+            break;
+
         default:
             break;
         }
+
+        return s.str();
     }
-
-private:
-    enum class Type {
-        HIGH_CARD,
-        PAIR,
-        TWO_PAIR,
-        TRIPS,
-        STRAIGHT,
-        FLUSH,
-        BOAT,
-        QUADS,
-        STRAIGHT_FLUSH
-    };
-
-    static inline const char* cards[15] = { 
-        "Ace", "King", "Queen", "Jack", "Ten", "Nine", "Eight", "Seven",
-         "Six", "Five", "Four", "Three", "Deuce", "Ace", "INVALID"  };
-
-    Type mType;
-    int mHigh;
 
 };
